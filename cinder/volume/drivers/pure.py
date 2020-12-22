@@ -81,10 +81,19 @@ PURE_OPTS = [
     cfg.StrOpt("pure_replication_pod_name", default="cinder-pod",
                help="Pure Pod name to use for sync replication "
                     "(will be created if it does not exist)."),
-    cfg.StrOpt("pure_iscsi_cidr", default="0.0.0.0/0",
+    cfg.ListOpt("pure_iscsi_included_cidrs", default=["0.0.0.0/0"],
+               help="Comma-separated list of FlashArray iSCSI targets hosts "
+                    "that are allowed to connect to. Default will allow "
+                    "connection to any IP address. This parameter is "
+                    "ignored if pure_iscsi_cidr is defined."),
+    cfg.ListOpt("pure_iscsi_excluded_cidrs", default=[],
+               help="Comma-separated list of FlashArray iSCSI targets hosts "
+                    "that are not used to connect to. Default will not exclude "
+                    "any IP address."),
+    cfg.StrOpt("pure_iscsi_cidr", default=None,
                help="CIDR of FlashArray iSCSI targets hosts are allowed to "
-                    "connect to. Default will allow connection to any "
-                    "IP address."),
+                    "connect to. This parameter overrides "
+                    "pure_iscsi_included_cidrs"),
     cfg.BoolOpt("pure_eradicate_on_delete",
                 default=False,
                 help="When enabled, all Pure volumes, snapshots, and "
@@ -2415,12 +2424,18 @@ class PureISCSIDriver(PureBaseVolumeDriver, san.SanISCSIDriver):
             },
         }
 
-        # Convert CIDR to the expected type
-        if not isinstance(self.configuration.pure_iscsi_cidr, str):
-            cidr = self.configuration.pure_iscsi_cidr.decode('utf8')
+        included_cidrs = []
+        excluded_cidrs = []
+        if self.configuration.pure_iscsi_cidr is not None:
+            LOG.info("Using pure_iscsi_cidr parameter, ignoring "
+                     "pure_iscsi_included_cidrs")
+            included_cidrs.append(
+                ipaddress.ip_network(self.configuration.pure_iscsi_cidr))
         else:
-            cidr = self.configuration.pure_iscsi_cidr
-        check_cidr = ipaddress.IPv4Network(cidr)
+            for cidr in self.configuration.pure_iscsi_included_cidrs:
+                included_cidrs.append(ipaddress.ip_network(cidr))
+            for cidr in self.configuration.pure_iscsi_excluded_cidrs:
+                excluded_cidrs.append(ipaddress.ip_network(cidr))
 
         target_luns = []
         target_iqns = []
@@ -2440,7 +2455,10 @@ class PureISCSIDriver(PureBaseVolumeDriver, san.SanISCSIDriver):
                 else:
                     portal = target_portal.split(":")[0]
                 check_ip = ipaddress.IPv4Address(portal)
-                if check_ip in check_cidr:
+                # check excluded cidrs
+                if check_ip in any(excluded_cidrs):
+                    LOG.debug("%s address excluded by pure_iscsi_excluded_cidrs")
+                elif any(check_ip in cidr for cidr in included_cidrs):
                     target_luns.append(target["connection"]["lun"])
                     target_iqns.append(port["iqn"])
                     target_portals.append(target_portal)
