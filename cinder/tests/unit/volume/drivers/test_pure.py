@@ -83,6 +83,9 @@ AC_ISCSI_IPS = ["10.0.0." + str(i + 1 + len(ISCSI_PORT_NAMES))
 ISCSI_CIDR = "0.0.0.0/0"
 # Designed to filter out only one of the AC ISCSI IPs, leaving the rest in
 ISCSI_CIDR_FILTERED = '10.0.0.0/29'
+# Include 7 first Ips, excluding .4,.5
+ISCSI_CIDRS_INCLUDED = ['10.0.0.0/29']
+ISCSI_CIDRS_EXCLUDED = ['10.0.0.4/31']
 FC_WWNS = ["21000024ff59fe9" + str(i + 1) for i in range(len(FC_PORT_NAMES))]
 AC_FC_WWNS = [
     "21000024ff59fab" + str(i + 1) for i in range(len(FC_PORT_NAMES))]
@@ -231,6 +234,25 @@ ISCSI_CONNECTION_INFO_AC_FILTERED = {
                            ISCSI_IPS[2] + ":" + TARGET_PORT,
                            ISCSI_IPS[3] + ":" + TARGET_PORT,
                            AC_ISCSI_IPS[0] + ":" + TARGET_PORT,
+                           AC_ISCSI_IPS[1] + ":" + TARGET_PORT,
+                           AC_ISCSI_IPS[2] + ":" + TARGET_PORT],
+        "wwn": "3624a93709714b5cb91634c470002b2c8",
+    },
+}
+ISCSI_CONNECTION_INFO_AC_EXCLUDED = {
+    "driver_volume_type": "iscsi",
+    "data": {
+        "target_discovered": False,
+        "discard": True,
+        "target_luns": [1, 1, 1, 5, 5],
+        # Final entry filtered by ISCSI_CIDR_FILTERED
+        "target_iqns": [TARGET_IQN, TARGET_IQN,
+                        TARGET_IQN, AC_TARGET_IQN,
+                        AC_TARGET_IQN],
+        # Final entry filtered by ISCSI_CIDR_FILTERED
+        "target_portals": [ISCSI_IPS[0] + ":" + TARGET_PORT,
+                           ISCSI_IPS[1] + ":" + TARGET_PORT,
+                           ISCSI_IPS[2] + ":" + TARGET_PORT,
                            AC_ISCSI_IPS[1] + ":" + TARGET_PORT,
                            AC_ISCSI_IPS[2] + ":" + TARGET_PORT],
         "wwn": "3624a93709714b5cb91634c470002b2c8",
@@ -3217,6 +3239,53 @@ class PureISCSIDriverTestCase(PureBaseSharedDriverTestCase):
         # ActiveCluster addresses from above, so we should check that we only
         # get four+three results back
         self.driver.configuration.pure_iscsi_cidr = ISCSI_CIDR_FILTERED
+        mock_secondary = mock.MagicMock()
+        self.driver._uniform_active_cluster_target_arrays = [mock_secondary]
+
+        real_result = self.driver.initialize_connection(vol,
+                                                        ISCSI_CONNECTOR)
+        self.assertDictEqual(result, real_result)
+        mock_get_iscsi_ports.assert_has_calls([
+            mock.call(self.array),
+            mock.call(mock_secondary),
+        ])
+        mock_connection.assert_has_calls([
+            mock.call(self.array, vol_name, ISCSI_CONNECTOR, None, None),
+            mock.call(mock_secondary, vol_name, ISCSI_CONNECTOR, None, None),
+        ])
+
+    @mock.patch(ISCSI_DRIVER_OBJ + "._get_wwn")
+    @mock.patch(ISCSI_DRIVER_OBJ + "._connect")
+    @mock.patch(ISCSI_DRIVER_OBJ + "._get_target_iscsi_ports")
+    def test_initialize_connection_uniform_ac_includes(self,
+                                                   mock_get_iscsi_ports,
+                                                   mock_connection,
+                                                   mock_get_wwn):
+        repl_extra_specs = {
+            'replication_type': '<in> sync',
+            'replication_enabled': '<is> true',
+        }
+        vol, vol_name = self.new_fake_vol(type_extra_specs=repl_extra_specs)
+        mock_get_iscsi_ports.side_effect = [ISCSI_PORTS, AC_ISCSI_PORTS]
+        mock_get_wwn.return_value = '3624a93709714b5cb91634c470002b2c8'
+        mock_connection.side_effect = [
+            {
+                "vol": vol_name,
+                "lun": 1,
+            },
+            {
+                "vol": vol_name,
+                "lun": 5,
+            }
+        ]
+        result = deepcopy(ISCSI_CONNECTION_INFO_AC_EXCLUDED)
+
+        self.driver._is_active_cluster_enabled = True
+        # Set up some CIDRs to block: this will block only one of the
+        # ActiveCluster addresses from above, so we should check that we only
+        # get four+three results back
+        self.driver.configuration.pure_iscsi_include_cidrs = ISCSI_CIDR_INCLUDED
+        self.driver.configuration.pure_iscsi_exclude_cidrs = ISCSI_CIDR_EXCLUDED
         mock_secondary = mock.MagicMock()
         self.driver._uniform_active_cluster_target_arrays = [mock_secondary]
 
