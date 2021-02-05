@@ -2444,7 +2444,14 @@ class PureISCSIDriver(PureBaseVolumeDriver, san.SanISCSIDriver):
                     portal = target_portal.split(":")[0]
                 check_ip = ipaddress.IPv4Address(portal)
                 if check_ip in check_cidr:
-                    target_luns.append(target["connection"]["lun"])
+                    # linux don't support linear lun IDs but has a gap at ID 256
+                    if (target["connection"]["lun"] < 256):
+                        target_luns.append(target["connection"]["lun"])
+                    else:
+                        LOG.debug("adjusting linux lun IDs > 256: %(pureid)s => %(linuxid)s",
+                                  {"pureid":  target["connection"]["lun"],
+                                   "linuxid": target["connection"]["lun"]+16384})
+                        target_luns.append(target["connection"]["lun"]+16384)
                     target_iqns.append(port["iqn"])
                     target_portals.append(target_portal)
 
