@@ -198,7 +198,7 @@ ISCSI_CONNECTION_INFO_AC = {
     "data": {
         "target_discovered": False,
         "discard": True,
-        "target_luns": [1, 1, 1, 1, 5, 5, 5, 5],
+        "target_luns": [1, 1, 1, 1, 16684, 16684, 16684, 16684],
         "target_iqns": [TARGET_IQN, TARGET_IQN,
                         TARGET_IQN, TARGET_IQN,
                         AC_TARGET_IQN, AC_TARGET_IQN,
@@ -3165,7 +3165,7 @@ class PureISCSIDriverTestCase(PureBaseSharedDriverTestCase):
             },
             {
                 "vol": vol_name,
-                "lun": 5,
+                "lun": 300,
             }
         ]
         result = deepcopy(ISCSI_CONNECTION_INFO_AC)
